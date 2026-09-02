@@ -19,6 +19,9 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
         run: python publish_daily.py
       - name: Enregistrer l'etat (anti-doublon)
+        # always() : l'etat doit etre commite meme quand l'etape precedente
+        # sort en erreur (echec Facebook), sinon le post repartirait en double.
+        if: always()
         run: |
           if [[ -n "$(git status --porcelain last.json)" ]]; then
             git config user.name "github-actions[bot]"

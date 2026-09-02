@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Publie le carrousel remisedebail du jour sur Instagram ET Facebook (API Graph).
 # Idempotent par canal (1x/jour/canal) via last.json {"ig":date,"fb":date}.
-import json, os, time, urllib.request, urllib.parse, urllib.error
+import json, os, sys, time, urllib.request, urllib.parse, urllib.error
 from datetime import datetime, timezone
 
 TOKEN = os.environ["IG_TOKEN"]          # page access token (sert IG + FB)
@@ -30,6 +30,8 @@ if os.path.exists("last.json"):
     try: state = json.load(open("last.json"))
     except Exception: state = {}
 
+failures = []   # canaux en echec -> le run doit finir en rouge
+
 posts = json.load(open("schedule.json", encoding="utf-8"))
 todays = [p for p in posts if p["date"] == today]
 if not todays:
@@ -56,6 +58,7 @@ if IGID and state.get("ig") != today:
         state["ig"] = today
     except SystemExit as e:
         print("IG echec:", e)
+        failures.append("Instagram: %s" % e)
 else:
     print("IG: saute (deja publie ou pas d'IG_USER_ID)")
 
@@ -71,8 +74,18 @@ if FBID and state.get("fb") != today:
         state["fb"] = today
     except SystemExit as e:
         print("FB echec:", e)
+        failures.append("Facebook: %s" % e)
 else:
     print("FB: saute (deja publie ou pas de FB_PAGE_ID)")
 
 json.dump(state, open("last.json", "w"))
 print("etat:", state)
+
+# L'etat est ecrit AVANT de sortir en erreur : la publication reste correcte,
+# seul le statut du run change (sinon GitHub Actions affiche un faux succes vert).
+if failures:
+    print("ECHEC DE PUBLICATION sur %d canal(aux) :" % len(failures))
+    for f in failures:
+        print("  -", f)
+    sys.exit(1)
+print("OK: tous les canaux actifs ont publie.")
