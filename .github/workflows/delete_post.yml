@@ -1,0 +1,85 @@
+name: supprimer une publication de la Page Facebook
+
+# Lancement MANUEL uniquement. Ne touche ni schedule.json, ni last.json, ni Instagram.
+on:
+  workflow_dispatch:
+    inputs:
+      post_id:
+        description: "Identifiant de la publication a supprimer (ex: 122139976185069084)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  supprimer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Supprimer via l'API Graph (DELETE /{post_id})
+        env:
+          IG_TOKEN: ${{ secrets.IG_TOKEN }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          POST_ID: ${{ inputs.post_id }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request, urllib.parse, urllib.error
+
+          TOKEN = os.environ["IG_TOKEN"]
+          PAGE  = os.environ["FB_PAGE_ID"]
+          POST  = os.environ["POST_ID"]
+          BASE  = "https://graph.facebook.com/v21.0/"
+
+          def montre(titre, code, corps):
+              print("=" * 72)
+              print(titre, "-> HTTP", code)
+              try:
+                  print(json.dumps(json.loads(corps), indent=2, ensure_ascii=False))
+              except Exception:
+                  print(corps[:4000])
+              print("=" * 72, flush=True)
+
+          def appel(titre, url, data=None, methode=None):
+              corps = data.encode() if isinstance(data, str) else data
+              req = urllib.request.Request(url, data=corps, method=methode)
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      txt = r.read().decode("utf-8", "replace"); code = r.status
+              except urllib.error.HTTPError as e:
+                  txt = e.read().decode("utf-8", "replace"); code = e.code
+              except urllib.error.URLError as e:
+                  montre(titre, "ERREUR RESEAU", str(e.reason))
+                  return None, str(e.reason), None
+              montre(titre, code, txt)
+              try:
+                  return code, txt, json.loads(txt)
+              except Exception:
+                  return code, txt, None
+
+          print("Page:", PAGE, "| publication:", POST)
+
+          appel("AVANT - GET /{post_id}",
+                BASE + POST + "?" + urllib.parse.urlencode(
+                    {"fields": "id,permalink_url,created_time", "access_token": TOKEN}))
+
+          code, txt, js = appel(
+              "DELETE /{post_id}",
+              BASE + POST + "?" + urllib.parse.urlencode({"access_token": TOKEN}),
+              methode="DELETE")
+
+          appel("APRES - GET /{post_id} (doit echouer si la suppression a marche)",
+                BASE + POST + "?" + urllib.parse.urlencode(
+                    {"fields": "id", "access_token": TOKEN}))
+
+          appel("REELS RESTANTS DE LA PAGE",
+                BASE + PAGE + "/video_reels?" + urllib.parse.urlencode(
+                    {"fields": "id,permalink_url,description,updated_time",
+                     "limit": "10", "access_token": TOKEN}))
+
+          if code != 200 or not js or not js.get("success", False):
+              raise SystemExit("ECHEC de la suppression (voir la reponse ci-dessus).")
+          print("Publication supprimee :", POST)
+          PY
