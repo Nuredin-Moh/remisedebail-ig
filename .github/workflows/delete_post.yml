@@ -8,6 +8,10 @@ on:
         description: "Identifiant de la publication a supprimer (ex: 122139976185069084)"
         required: true
         type: string
+      video_id:
+        description: "Identifiant de la video / du Reel (ex: 1385192097017700)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,6 +28,7 @@ jobs:
           IG_TOKEN: ${{ secrets.IG_TOKEN }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           POST_ID: ${{ inputs.post_id }}
+          VIDEO_ID: ${{ inputs.video_id }}
         run: |
           python - <<'PY'
           import json, os, urllib.request, urllib.parse, urllib.error
@@ -59,27 +64,32 @@ jobs:
               except Exception:
                   return code, txt, None
 
-          print("Page:", PAGE, "| publication:", POST)
+          print("Page:", PAGE, "| cible:", POST)
 
-          appel("AVANT - GET /{post_id}",
-                BASE + POST + "?" + urllib.parse.urlencode(
-                    {"fields": "id,permalink_url,created_time", "access_token": TOKEN}))
+          # L'identifiant "brut" d'un Reel n'est pas toujours adressable tel quel.
+          # On essaie les formes connues, dans l'ordre, et on s'arrete au premier succes.
+          candidats = [POST, PAGE + "_" + POST]
+          autre = os.environ.get("VIDEO_ID", "").strip()
+          if autre:
+              candidats = [autre, PAGE + "_" + autre] + candidats
 
-          code, txt, js = appel(
-              "DELETE /{post_id}",
-              BASE + POST + "?" + urllib.parse.urlencode({"access_token": TOKEN}),
-              methode="DELETE")
-
-          appel("APRES - GET /{post_id} (doit echouer si la suppression a marche)",
-                BASE + POST + "?" + urllib.parse.urlencode(
-                    {"fields": "id", "access_token": TOKEN}))
+          ok = False
+          for cible in candidats:
+              c, t, j = appel(
+                  "DELETE /" + cible,
+                  BASE + cible + "?" + urllib.parse.urlencode({"access_token": TOKEN}),
+                  methode="DELETE")
+              if c == 200 and isinstance(j, dict) and j.get("success"):
+                  print(">> supprime via", cible, flush=True)
+                  ok = True
+                  break
 
           appel("REELS RESTANTS DE LA PAGE",
                 BASE + PAGE + "/video_reels?" + urllib.parse.urlencode(
                     {"fields": "id,permalink_url,description,updated_time",
                      "limit": "10", "access_token": TOKEN}))
 
-          if code != 200 or not js or not js.get("success", False):
-              raise SystemExit("ECHEC de la suppression (voir la reponse ci-dessus).")
-          print("Publication supprimee :", POST)
+          if not ok:
+              raise SystemExit("ECHEC de la suppression (voir les reponses ci-dessus).")
+          print("Publication supprimee.")
           PY
