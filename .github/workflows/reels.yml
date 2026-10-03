@@ -1,0 +1,43 @@
+name: remisedebail reels (FB programme + IG et story le jour J)
+
+on:
+  schedule:
+    - cron: '5 16 * * *'    # 18h05 suisse
+    - cron: '35 16 * * *'   # 18h35 suisse (rattrapage retard GitHub)
+    - cron: '5 17 * * *'    # 19h05 suisse (dernier filet)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "schedule-fb (programmer Facebook) ou publish-ig (publier le reel du jour)"
+        required: true
+        default: publish-ig
+        type: choice
+        options: [publish-ig, schedule-fb]
+
+permissions:
+  contents: write
+
+jobs:
+  reels:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Publier / programmer les reels
+        env:
+          IG_TOKEN: ${{ secrets.IG_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+        run: python publish_reels.py ${{ github.event.inputs.mode || 'publish-ig' }}
+      - name: Enregistrer l'etat (anti-doublon)
+        if: always()
+        run: |
+          if [[ -n "$(git status --porcelain reels_state.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add reels_state.json
+            git commit -m "reels: etat $(TZ=Europe/Zurich date +%F' '%H:%M)"
+            git push
+          fi
